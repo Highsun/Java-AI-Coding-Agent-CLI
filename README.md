@@ -343,5 +343,5 @@ com.agent.tool（Lab 02 独立文件工具，未修改）
 f725b9a bootstrap project          # Lab 01 / V1
 75c0173 lab02: file tools          # Lab 02 / V2
 87b53b2 docs: organize lab progress
-41e9afc lab03: glm client + react agent   # Lab 03 / V3
+lab03: add glm client and react agent   # Lab 03 / V3（哈希以 git log 为准）
 ```
