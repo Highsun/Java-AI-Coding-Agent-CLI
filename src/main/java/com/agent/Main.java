@@ -19,16 +19,22 @@ import java.util.Scanner;
 public class Main {
 
     private static final String API_KEY_ENV = "GLM_API_KEY";
+    private static final String API_URL_ENV = "GLM_API_URL";
+    private static final String MODEL_ENV = "GLM_MODEL";
 
     public static void main(String[] args) {
-        String apiKey = loadApiKey(Path.of(".env"));
+        Path envFile = Path.of(".env");
+        String apiKey = loadApiKey(envFile);
         if (apiKey == null || apiKey.isBlank()) {
             System.err.println("错误：未找到 " + API_KEY_ENV);
             System.err.println("请在项目根目录的 .env 或环境变量中设置 " + API_KEY_ENV);
             System.exit(1);
         }
 
-        GlmClient llm = new GlmClient(apiKey);
+        String apiUrl = loadSetting(envFile, API_URL_ENV, GlmClient.DEFAULT_API_URL);
+        String model = loadSetting(envFile, MODEL_ENV, GlmClient.DEFAULT_MODEL);
+
+        GlmClient llm = new GlmClient(apiKey, apiUrl, model);
         ToolRegistry registry = new ToolRegistry(Path.of("."));
         Agent agent = new Agent(llm, registry);
 
@@ -72,20 +78,39 @@ public class Main {
      * @return API Key，未配置时返回 {@code null}
      */
     static String loadApiKey(Path envFile) {
+        return loadSetting(envFile, API_KEY_ENV, null);
+    }
+
+    /**
+     * 读取一个配置项：优先 {@code .env}，其次环境变量，最后默认值。
+     *
+     * <p>{@code GLM_API_URL} 与 {@code GLM_MODEL} 主要用于离线验收——
+     * 把 Endpoint 指向本地假服务器，就可以在没有真实 Key 的情况下走完整个 CLI 流程。
+     *
+     * @param envFile     项目根目录下的 {@code .env}
+     * @param name        配置项名称，例如 {@code GLM_API_KEY}
+     * @param fallback    两者都未配置时的默认值，可为 {@code null}
+     * @return 配置值
+     */
+    static String loadSetting(Path envFile, String name, String fallback) {
         if (Files.isRegularFile(envFile)) {
             try (BufferedReader reader = Files.newBufferedReader(envFile, StandardCharsets.UTF_8)) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     line = line.replace("\uFEFF", "").trim();
-                    if (line.startsWith(API_KEY_ENV + "=")) {
-                        return unquote(line.substring((API_KEY_ENV + "=").length()).trim());
+                    if (line.startsWith(name + "=")) {
+                        String value = unquote(line.substring((name + "=").length()).trim());
+                        if (!value.isBlank()) {
+                            return value;
+                        }
                     }
                 }
             } catch (IOException e) {
                 System.err.println("读取 .env 失败: " + e.getMessage());
             }
         }
-        return System.getenv(API_KEY_ENV);
+        String fromEnvironment = System.getenv(name);
+        return (fromEnvironment == null || fromEnvironment.isBlank()) ? fallback : fromEnvironment;
     }
 
     private static String unquote(String value) {

@@ -30,7 +30,20 @@ class MainTest {
     }
 
     @Test
-    void shouldReturnNullWhenEnvFileMissing(@TempDir Path tempDir) {
-        assertNull(Main.loadApiKey(tempDir.resolve("no-such-env")));
+    void shouldReturnFallbackWhenEnvFileMissing(@TempDir Path tempDir) {
+        // 使用一个不可能出现在真实环境中的变量名，保证测试与开发机环境无关
+        assertNull(Main.loadSetting(tempDir.resolve("no-such-env"), "AGENT_CLI_TEST_MISSING_KEY", null));
+        assertEquals("default", Main.loadSetting(
+                tempDir.resolve("no-such-env"), "AGENT_CLI_TEST_MISSING_KEY", "default"));
+    }
+
+    @Test
+    void shouldPreferEnvFileOverEverythingElse(@TempDir Path tempDir) throws Exception {
+        Path env = tempDir.resolve(".env");
+        Files.writeString(env, "GLM_API_URL=http://127.0.0.1:9/v4/chat/completions\n",
+                StandardCharsets.UTF_8);
+
+        assertEquals("http://127.0.0.1:9/v4/chat/completions",
+                Main.loadSetting(env, "GLM_API_URL", "https://open.bigmodel.cn/api/paas/v4/chat/completions"));
     }
 }

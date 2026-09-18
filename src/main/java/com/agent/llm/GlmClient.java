@@ -40,7 +40,12 @@ public class GlmClient implements LLMClient {
 
     /** 生产用法：默认 Endpoint 与默认模型。 */
     public GlmClient(String apiKey) {
-        this(apiKey, DEFAULT_API_URL, DEFAULT_MODEL, new OkHttpClient.Builder()
+        this(apiKey, DEFAULT_API_URL, DEFAULT_MODEL);
+    }
+
+    /** 生产用法：自定义 Endpoint 与模型标识（可用环境变量覆盖）。 */
+    public GlmClient(String apiKey, String apiUrl, String model) {
+        this(apiKey, apiUrl, model, new OkHttpClient.Builder()
                 .connectTimeout(60, TimeUnit.SECONDS)
                 .readTimeout(120, TimeUnit.SECONDS)
                 .writeTimeout(60, TimeUnit.SECONDS)

@@ -36,6 +36,13 @@ cp .env.example .env
 export GLM_API_KEY="你的真实Key"
 ```
 
+另外两个可选配置项（默认值即真实 GLM 服务，通常不需要设置）：
+
+| 配置项 | 默认值 | 用途 |
+|---|---|---|
+| `GLM_API_URL` | `https://open.bigmodel.cn/api/paas/v4/chat/completions` | 把 Endpoint 指向本地假服务器，做离线端到端验收 |
+| `GLM_MODEL` | `glm-5.2` | 换成控制台实际可用的模型标识 |
+
 `.env` 已被 `.gitignore` 忽略。不要把真实 Key 写进源码、截图或实验报告，更不要提交到 Git。
 
 ## 快速开始
@@ -56,7 +63,22 @@ java -jar target/agent-cli.jar
 java -cp target/classes:target/agent-cli.jar com.agent.tool.FileToolsDemo README.md TODO
 ```
 
-预期测试结果：当前共 39 个测试，Failures 和 Errors 均为 0，Maven 输出 `BUILD SUCCESS`。全部测试都是离线测试，不需要 API Key，也不访问外网。
+预期测试结果：当前共 41 个测试，Failures 和 Errors 均为 0，Maven 输出 `BUILD SUCCESS`。全部测试都是离线测试，不需要 API Key，也不访问外网。
+
+### 没有 API Key 时如何验收 CLI
+
+`dev/MockGlmServer.java` 是一个只用 JDK 自带 `HttpServer` 写成的假 GLM Endpoint（复用 fat jar 里的 Jackson 解析请求），可以完整走一遍 Chat Completions + Tool Calling 协议：
+
+```bash
+# 终端 1：启动假 GLM
+java -cp target/agent-cli.jar dev/MockGlmServer.java 8099
+
+# 终端 2：把 CLI 指向假 GLM
+GLM_API_KEY=dummy GLM_API_URL=http://127.0.0.1:8099/v4/chat/completions \
+  java -jar target/agent-cli.jar
+```
+
+它可以复现“直接回答 / 单工具调用 / 多步调用 / 工具失败 / clear”五种场景，用于检查 AT02～AT07 的接线是否正常；协议本身的正确性由 `GlmClientTest` 与 `AgentEndToEndTest` 保证。
 
 如果本机 Maven 默认仓库不可写，可以将依赖缓存切换到临时目录：
 
@@ -259,7 +281,7 @@ Lab 03 的测试全部离线，不需要 API Key，也不访问外网：
 | AT01 | GLM 连通 | 配置真实 Key 后运行 CLI 输入“你好”，或 `GlmClientTest.shouldParseFinalAnswerWithUsage` 验证离线协议 |
 | AT02 | 直接回答 | `AgentTest.shouldExitOnFinalAnswer` |
 | AT03 | 单工具调用 | `AgentEndToEndTest.shouldReadPomThenAnswer`（`read_file` → 最终答案） |
-| AT04 | 多步调用 | CLI 输入“搜索 TODO，并读取其中一个文件”；`AgentTest.shouldExecuteMultipleToolCallsInOneRound` 覆盖同轮多调用 |
+| AT04 | 多步调用 | `AgentEndToEndTest.shouldSearchThenReadThenAnswerAt04`（`search_code → read_file`）；`AgentTest.shouldExecuteMultipleToolCallsInOneRound` 覆盖同轮多调用 |
 | AT05 | Tool 失败 | `AgentTest.shouldFeedToolFailureBackAsObservation`（错误作为 Observation 继续） |
 | AT06 | Loop 退出 | `AgentTest.shouldLoopOnToolCallAndFeedObservationBack`、`AgentTest.shouldStopAtMaxIterations` |
 | AT07 | 历史清空 | `AgentTest.shouldClearHistoryKeepingOnlySystemPrompt` + CLI `clear` 命令 |
@@ -299,6 +321,8 @@ com.agent.tool（Lab 02 独立文件工具，未修改）
 ├── .gitignore
 ├── README.md
 ├── pom.xml
+├── dev
+│   └── MockGlmServer.java          离线验收用的假 GLM Endpoint
 └── src
     ├── main/java/com/agent
     │   ├── Agent.java
@@ -344,4 +368,5 @@ f725b9a bootstrap project          # Lab 01 / V1
 75c0173 lab02: file tools          # Lab 02 / V2
 87b53b2 docs: organize lab progress
 lab03: add glm client and react agent   # Lab 03 / V3（哈希以 git log 为准）
+lab03b: offline e2e acceptance and debug exercise   # Lab 03-b 验收与调试实验
 ```
