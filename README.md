@@ -43,7 +43,7 @@ export GLM_API_KEY="你的真实Key"
 | `GLM_API_URL` | `https://open.bigmodel.cn/api/paas/v4/chat/completions` | 把 Endpoint 指向本地假服务器，做离线端到端验收 |
 | `GLM_MODEL` | `glm-5.2` | 换成控制台实际可用的模型标识 |
 
-`.env` 已被 `.gitignore` 忽略。不要把真实 Key 写进源码、截图或实验报告，更不要提交到 Git。
+`.env` 已被 `.gitignore` 忽略。
 
 ## 快速开始
 
@@ -268,7 +268,7 @@ Lab 03 的测试全部离线，不需要 API Key，也不访问外网：
 | 测试类 | 覆盖内容 |
 |---|---|
 | `AgentTest` | 最终回答直接退出、Tool Call 触发第二轮、Observation 回传、未知工具、工具失败回传、同轮多调用、`MAX_ITERATIONS` 安全阀、`clearHistory`、超长 Observation 截断、首轮请求带 system + 3 个工具定义 |
-| `AgentEndToEndTest` | 本地假 GLM 服务器 + 真实 `ReadFileTool` 的完整链路（AT03/AT06） |
+| `AgentEndToEndTest` | 本地假 GLM 服务器 + 真实 `ReadFileTool` / `SearchCodeTool` 的完整链路（AT03、AT04、AT06） |
 | `GlmClientTest` | 本地 `HttpServer` 验证 Bearer 鉴权、messages/tools 序列化、`content=null` 仍解析 `tool_calls`、usage 解析、401/429/5xx/缺少 choices 错误、空 Key 拒绝、请求体不含 Key |
 | `ToolRegistryTest` | 三个工具注册与 Schema、复用 Lab02 工具、未知工具、非法 JSON、路径越界拒绝、空参数 |
 | `MainTest` | `.env` 读取、BOM 与引号处理、文件缺失时回退 |
@@ -276,9 +276,11 @@ Lab 03 的测试全部离线，不需要 API Key，也不访问外网：
 
 ### AT01～AT07 对照
 
+真机验收状态：2026-09-20 使用真实 GLM API Key（模型 `glm-5.2`）跑通 AT01～AT07，共 10 次请求、4 次工具调用，输入 22758 / 输出 1797 tokens。
+
 | 编号 | 验收项 | 本项目中的验证方式 |
 |---|---|---|
-| AT01 | GLM 连通 | 配置真实 Key 后运行 CLI 输入“你好”，或 `GlmClientTest.shouldParseFinalAnswerWithUsage` 验证离线协议 |
+| AT01 | GLM 连通 | 已用真实 Key 验证 `content` 非空；协议细节另由 `GlmClientTest.shouldParseFinalAnswerWithUsage` 覆盖 |
 | AT02 | 直接回答 | `AgentTest.shouldExitOnFinalAnswer` |
 | AT03 | 单工具调用 | `AgentEndToEndTest.shouldReadPomThenAnswer`（`read_file` → 最终答案） |
 | AT04 | 多步调用 | `AgentEndToEndTest.shouldSearchThenReadThenAnswerAt04`（`search_code → read_file`）；`AgentTest.shouldExecuteMultipleToolCallsInOneRound` 覆盖同轮多调用 |
