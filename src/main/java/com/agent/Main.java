@@ -1,6 +1,7 @@
 package com.agent;
 
 import com.agent.llm.GlmClient;
+import com.agent.cli.TerminalLineReader;
 import com.agent.tool.ToolRegistry;
 
 import java.io.BufferedReader;
@@ -8,12 +9,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Scanner;
 
 /**
  * CLI 接线：加载配置、创建对象、处理终端交互。
  *
- * <p>这里不出现任何 LLM 协议或文件工具逻辑，主流程只是
+ * <p>
+ * 这里不出现任何 LLM 协议或文件工具逻辑，主流程只是
  * {@code GlmClient + ToolRegistry + Agent} 的组合。
  */
 public class Main {
@@ -41,14 +42,22 @@ public class Main {
         System.out.println("输入问题，Agent 会自动决定是否调用文件工具；");
         System.out.println("clear 清空对话历史；exit/quit 退出。\n");
 
-        try (Scanner scanner = new Scanner(System.in)) {
+        // 中文退格由 TerminalLineReader 自己处理：终端按字节删除会让一个汉字需要多次退格，
+        // 并留下擦不掉的残影；这里改为按字符 + 显示宽度编辑（非终端输入自动回退为按行读取）。
+        try (TerminalLineReader reader = TerminalLineReader.create()) {
             while (true) {
-                System.out.print("你：");
-                if (!scanner.hasNextLine()) {
+                String input;
+                try {
+                    input = reader.readLine("你：");
+                } catch (IOException e) {
+                    System.err.println("读取输入失败: " + e.getMessage());
+                    break;
+                }
+                if (input == null) {
                     break;
                 }
 
-                String input = scanner.nextLine().trim();
+                input = input.trim();
                 if (input.isEmpty()) {
                     continue;
                 }
@@ -71,7 +80,8 @@ public class Main {
     /**
      * 先读工作目录下的 {@code .env}，再回退到环境变量。
      *
-     * <p>必须从项目根目录运行，因为 {@code .env} 按当前工作目录寻找。
+     * <p>
+     * 必须从项目根目录运行，因为 {@code .env} 按当前工作目录寻找。
      * 读取时主动去除 Windows 可能写入的 BOM 与首尾空白，并兼容带引号的写法。
      *
      * @param envFile {@code .env} 路径
@@ -84,12 +94,13 @@ public class Main {
     /**
      * 读取一个配置项：优先 {@code .env}，其次环境变量，最后默认值。
      *
-     * <p>{@code GLM_API_URL} 与 {@code GLM_MODEL} 主要用于离线验收——
+     * <p>
+     * {@code GLM_API_URL} 与 {@code GLM_MODEL} 主要用于离线验收——
      * 把 Endpoint 指向本地假服务器，就可以在没有真实 Key 的情况下走完整个 CLI 流程。
      *
-     * @param envFile     项目根目录下的 {@code .env}
-     * @param name        配置项名称，例如 {@code GLM_API_KEY}
-     * @param fallback    两者都未配置时的默认值，可为 {@code null}
+     * @param envFile  项目根目录下的 {@code .env}
+     * @param name     配置项名称，例如 {@code GLM_API_KEY}
+     * @param fallback 两者都未配置时的默认值，可为 {@code null}
      * @return 配置值
      */
     static String loadSetting(Path envFile, String name, String fallback) {
@@ -116,7 +127,7 @@ public class Main {
     private static String unquote(String value) {
         if (value.length() >= 2
                 && (value.startsWith("\"") && value.endsWith("\"")
-                || value.startsWith("'") && value.endsWith("'"))) {
+                        || value.startsWith("'") && value.endsWith("'"))) {
             return value.substring(1, value.length() - 1);
         }
         return value;

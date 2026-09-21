@@ -50,7 +50,7 @@ export GLM_API_KEY="你的真实Key"
 在项目根目录（包含 `pom.xml` 的 `code/`）执行：
 
 ```bash
-# 运行全部测试（39 个，离线，不需要 API Key）
+# 运行全部测试（52 个，离线，不需要 API Key）
 mvn test
 
 # 打包可执行 fat jar
@@ -63,7 +63,7 @@ java -jar target/agent-cli.jar
 java -cp target/classes:target/agent-cli.jar com.agent.tool.FileToolsDemo README.md TODO
 ```
 
-预期测试结果：当前共 41 个测试，Failures 和 Errors 均为 0，Maven 输出 `BUILD SUCCESS`。全部测试都是离线测试，不需要 API Key，也不访问外网。
+测试结果：当前共 52 个测试，Failures 和 Errors 均为 0，Maven 输出 `BUILD SUCCESS`。全部测试都是离线测试，不需要 API Key，也不访问外网。
 
 ### 没有 API Key 时如何验收 CLI
 
@@ -261,6 +261,18 @@ CLI 交互示例：
 
 需要项目内容时会先打印 `执行工具: read_file`、`参数: {"path":"pom.xml"}` 和结果摘要，再输出基于 Observation 的最终回答。
 
+### 中文输入与退格（行编辑）
+
+默认情况下，终端的行编辑由操作系统按**字节**处理：一个汉字在 UTF-8 中占 3 个字节、在屏幕上占 2 列，于是会出现“一个汉字要按两三次退格才删掉”和“删到开头还残留半个字”的现象。本项目的 CLI 不再依赖终端自带的编辑能力，而是自己做行编辑：
+
+| 类 | 作用 |
+|---|---|
+| `TerminalLineReader` | 进入原始模式（`stty -icanon -echo`）后逐字符读取、自己回显与擦除；退出时自动恢复终端设置 |
+| `LineBuffer` | 按码点增删，一次退格删除一个完整字符（含 emoji） |
+| `DisplayWidth` | 按显示宽度计算擦除列数，汉字/全角字符按 2 列处理 |
+
+该行为只在标准输入是终端时启用；`printf ... | java -jar ...` 这类管道输入会自动回退为按行读取，脚本与冒烟测试不受影响。支持 Ctrl+C（退出）、Ctrl+D（空行时退出）、Ctrl+U（清空当前行），方向键等转义序列会被忽略而不会插入乱码。
+
 ### 测试
 
 Lab 03 的测试全部离线，不需要 API Key，也不访问外网：
@@ -330,6 +342,10 @@ com.agent.tool（Lab 02 独立文件工具，未修改）
     │   ├── Agent.java
     │   ├── EchoAgent.java
     │   ├── Main.java
+    │   ├── cli
+    │   │   ├── DisplayWidth.java
+    │   │   ├── LineBuffer.java
+    │   │   └── TerminalLineReader.java
     │   ├── llm
     │   │   ├── GlmClient.java
     │   │   ├── LLMClient.java
@@ -347,6 +363,10 @@ com.agent.tool（Lab 02 独立文件工具，未修改）
         ├── AgentTest.java
         ├── EchoAgentTest.java
         ├── MainTest.java
+        ├── cli
+        │   ├── DisplayWidthTest.java
+        │   ├── LineBufferTest.java
+        │   └── TerminalLineReaderTest.java
         ├── llm
         │   ├── FakeLLMClient.java
         │   └── GlmClientTest.java
