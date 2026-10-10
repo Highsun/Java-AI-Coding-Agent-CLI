@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /** 非终端（管道输入）时的回退行为测试，保证脚本与冒烟测试不受行编辑改动影响。 */
 class TerminalLineReaderTest {
@@ -38,5 +39,14 @@ class TerminalLineReaderTest {
         try (TerminalLineReader reader = readerFor("读取 pom.xml 并概括依赖\n", output)) {
             assertEquals("读取 pom.xml 并概括依赖", reader.readLine("你："));
         }
+    }
+
+    @Test void shouldNeverConsumeTaskInputAsCredentialInPipeMode() throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (TerminalLineReader reader = readerFor("natural language task\n", output)) {
+            assertThrows(java.io.IOException.class, () -> reader.readSecretLine("API Key："));
+            assertEquals("natural language task", reader.readLine("你："));
+        }
+        assertFalse(output.toString(StandardCharsets.UTF_8).contains("API Key"));
     }
 }

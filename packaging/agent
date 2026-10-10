@@ -1,0 +1,21 @@
+#!/bin/sh
+# Keep the caller's working directory: it remains the default Agent workspace.
+set -eu
+APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+if [ "${1:-}" = "--version" ] && [ "$#" -eq 1 ]; then
+    printf 'Java AI Coding Agent %s\n' "$(cat "$APP_HOME/VERSION")"
+    exit 0
+fi
+
+# User configuration and onboarding are handled by the Java CLI itself.
+if [ -x "$APP_HOME/runtime/bin/java" ]; then
+    JAVA_HOME="$APP_HOME/runtime"
+    PATH="$JAVA_HOME/bin:$PATH"
+    export JAVA_HOME PATH
+    JAVA="$JAVA_HOME/bin/java"
+elif [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+    JAVA="$JAVA_HOME/bin/java"
+else
+    JAVA=java
+fi
+exec "$JAVA" -Dfile.encoding=UTF-8 -jar "$APP_HOME/lib/agent-cli.jar" "$@"

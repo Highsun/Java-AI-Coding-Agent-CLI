@@ -15,13 +15,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ToolRegistryTest {
 
     @Test
-    void shouldRegisterThreeFileToolsWithSchema(@TempDir Path tempDir) {
+    void shouldRegisterSevenToolsWithSchema(@TempDir Path tempDir) {
         var registry = new ToolRegistry(tempDir);
         var definitions = registry.getToolDefinitions();
 
-        assertEquals(3, definitions.size());
+        assertEquals(7, definitions.size());
         assertEquals(
-                java.util.Set.of("list_files", "read_file", "search_code"),
+                java.util.Set.of("list_files", "read_file", "search_code", "list_dir", "write_file", "edit_file", "execute_command"),
                 registry.toolNames());
 
         var readFile = definitions.stream()
@@ -102,9 +102,9 @@ class ToolRegistryTest {
     }
 
     @Test
-    void shouldTreatBlankArgumentsAsEmpty(@TempDir Path tempDir) {
+    void shouldRejectBlankArgumentsWhenRequiredPathIsMissing(@TempDir Path tempDir) {
         var registry = new ToolRegistry(tempDir);
 
-        assertTrue(registry.execute("list_files", "").startsWith("文件列表"));
+        assertTrue(registry.execute("list_files", "").contains("缺少必填参数: path"));
     }
 }

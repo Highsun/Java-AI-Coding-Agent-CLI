@@ -2,6 +2,7 @@ package com.agent.cli;
 
 import java.io.BufferedReader;
 import java.io.Closeable;
+import java.io.Console;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -38,17 +39,19 @@ public final class TerminalLineReader implements Closeable {
     private final BufferedReader canonicalInput;
     private final PrintStream out;
     private final boolean raw;
+    private final Console console;
 
     private Thread restoreHook;
     private boolean swallowLineFeed;
     private boolean closed;
 
     private TerminalLineReader(PushbackReader rawInput, BufferedReader canonicalInput,
-            PrintStream out, boolean raw) {
+            PrintStream out, boolean raw, Console console) {
         this.rawInput = rawInput;
         this.canonicalInput = canonicalInput;
         this.out = out;
         this.raw = raw;
+        this.console = console;
     }
 
     /** 创建读取器：标准输入是终端时启用自建行编辑，否则按行读取。 */
@@ -58,22 +61,24 @@ public final class TerminalLineReader implements Closeable {
 
     static TerminalLineReader create(InputStream stdin, PrintStream stdout) {
         Charset charset = Charset.defaultCharset();
-        boolean terminal = System.console() != null;
+        Console console = System.console();
+        boolean terminal = console != null;
 
-        if (terminal && setStty("-icanon", "-echo", "min", "1", "time", "0")) {
+        if (terminal && !System.getProperty("os.name").startsWith("Windows")
+                && setStty("-icanon", "-echo", "min", "1", "time", "0")) {
             PushbackReader input = new PushbackReader(new InputStreamReader(stdin, charset), 8);
-            TerminalLineReader reader = new TerminalLineReader(input, null, stdout, true);
+            TerminalLineReader reader = new TerminalLineReader(input, null, stdout, true, null);
             reader.restoreHook = new Thread(TerminalLineReader::restoreStty, "terminal-restore");
             Runtime.getRuntime().addShutdownHook(reader.restoreHook);
             return reader;
         }
         return new TerminalLineReader(
-                null, new BufferedReader(new InputStreamReader(stdin, charset)), stdout, false);
+                null, new BufferedReader(new InputStreamReader(stdin, charset)), stdout, false, console);
     }
 
     /** @return 是否启用了自建行编辑（终端模式） */
     public boolean isInteractive() {
-        return raw;
+        return raw || console != null;
     }
 
     /**
@@ -83,7 +88,24 @@ public final class TerminalLineReader implements Closeable {
      * @return 输入内容；遇到 EOF 或 Ctrl-C / Ctrl-D 时返回 {@code null}
      */
     public String readLine(String prompt) throws IOException {
+        return readLine(prompt, false);
+    }
+
+    /** Read a credential through the same buffer, with no echo or masked length. */
+    public String readSecretLine(String prompt) throws IOException {
         if (!raw) {
+            if (console == null) throw new IOException("需要可关闭回显的交互终端才能输入 API Key。");
+            char[] password = console.readPassword("%s", prompt);
+            if (password == null) return null;
+            try { return new String(password); }
+            finally { java.util.Arrays.fill(password, '\0'); }
+        }
+        return readLine(prompt, true);
+    }
+
+    private String readLine(String prompt, boolean secret) throws IOException {
+        if (!raw) {
+            if (console != null) return console.readLine("%s", prompt);
             out.print(prompt);
             out.flush();
             return canonicalInput.readLine();
@@ -111,7 +133,8 @@ public final class TerminalLineReader implements Closeable {
                 return buffer.text();
             }
             if (ch == BACKSPACE_DEL || ch == BACKSPACE_BS) {
-                eraseColumns(buffer.backspace());
+                int width = buffer.backspace();
+                if (!secret) eraseColumns(width);
                 continue;
             }
             if (ch == CTRL_C) {
@@ -128,7 +151,7 @@ public final class TerminalLineReader implements Closeable {
             if (ch == CTRL_U) {
                 int width = buffer.displayWidth();
                 buffer.clear();
-                eraseColumns(width);
+                if (!secret) eraseColumns(width);
                 continue;
             }
             if (ch == ESC) {
@@ -141,8 +164,10 @@ public final class TerminalLineReader implements Closeable {
                 continue;
             }
             buffer.append(codePoint);
-            out.print(new String(Character.toChars(codePoint)));
-            out.flush();
+            if (!secret) {
+                out.print(new String(Character.toChars(codePoint)));
+                out.flush();
+            }
         }
     }
 

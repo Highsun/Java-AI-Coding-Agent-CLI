@@ -113,9 +113,11 @@ class AgentTest {
 
     @Test
     void shouldStopAtMaxIterations() {
-        var call = new ToolCall("call_x", new ToolCall.Function("list_files", "{\"path\":\".\"}"));
-        var fake = new FakeLLMClient(
-                List.of(new LLMResponse("", List.of(call), 1, 1)), true);
+        var responses = java.util.stream.IntStream.range(0, Agent.MAX_ITERATIONS)
+                .mapToObj(i -> new LLMResponse("", List.of(new ToolCall("call_" + i,
+                        new ToolCall.Function("read_file", "{\"path\":\"missing" + i + "\"}"))), 1, 1))
+                .toList();
+        var fake = new FakeLLMClient(responses);
 
         var agent = new Agent(fake, registry, QUIET);
         String answer = agent.run("无限调用");
@@ -169,6 +171,6 @@ class AgentTest {
         new Agent(fake, registry, QUIET).run("你好");
 
         assertEquals(Message.ROLE_SYSTEM, fake.requests().get(0).get(0).role());
-        assertEquals(3, fake.toolRequests().get(0).size(), "三个 File Tool 都应注册给模型");
+        assertEquals(7, fake.toolRequests().get(0).size(), "七个工具都应注册给模型");
     }
 }

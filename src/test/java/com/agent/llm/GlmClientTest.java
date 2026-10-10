@@ -146,7 +146,7 @@ class GlmClientTest {
         assertFalse(messages.get(3).has("tool_calls"), "tool 消息不应带 tool_calls");
 
         JsonNode tools = request.path("tools");
-        assertEquals(3, tools.size());
+        assertEquals(7, tools.size());
         assertEquals("function", tools.get(0).path("type").asText());
         assertNotNull(tools.get(0).path("function").path("parameters").path("properties").get("path"));
         assertFalse(lastRequestBody.get().contains("test-key"), "请求体不能包含 API Key");

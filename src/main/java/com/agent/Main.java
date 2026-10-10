@@ -1,80 +1,132 @@
 package com.agent;
 
-import com.agent.llm.GlmClient;
+import com.agent.cli.ConfigurationWizard;
 import com.agent.cli.TerminalLineReader;
+import com.agent.config.AgentConfiguration;
+import com.agent.config.ConfigurationStore;
+import com.agent.llm.GlmClient;
 import com.agent.tool.ToolRegistry;
-
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
-/**
- * CLI 接线：加载配置、创建对象、处理终端交互。
- *
- * <p>
- * 这里不出现任何 LLM 协议或文件工具逻辑，主流程只是
- * {@code GlmClient + ToolRegistry + Agent} 的组合。
- */
+/** CLI 接线、首次配置和会话命令；模型协议与工具执行保持独立。 */
 public class Main {
-
     private static final String API_KEY_ENV = "GLM_API_KEY";
-    private static final String API_URL_ENV = "GLM_API_URL";
-    private static final String MODEL_ENV = "GLM_MODEL";
 
     public static void main(String[] args) {
-        Path envFile = Path.of(".env");
-        String apiKey = loadApiKey(envFile);
-        if (apiKey == null || apiKey.isBlank()) {
-            System.err.println("错误：未找到 " + API_KEY_ENV);
-            System.err.println("请在项目根目录的 .env 或环境变量中设置 " + API_KEY_ENV);
-            System.exit(1);
+        int status = run(args);
+        if (status != 0) System.exit(status);
+    }
+
+    private static int run(String[] args) {
+        Path projectRoot = Path.of(".");
+        boolean configure = false;
+        if (args.length == 1 && (args[0].equals("--help") || args[0].equals("-h"))) {
+            help(); return 0;
         }
-
-        String apiUrl = loadSetting(envFile, API_URL_ENV, GlmClient.DEFAULT_API_URL);
-        String model = loadSetting(envFile, MODEL_ENV, GlmClient.DEFAULT_MODEL);
-
-        GlmClient llm = new GlmClient(apiKey, apiUrl, model);
-        ToolRegistry registry = new ToolRegistry(Path.of("."));
-        Agent agent = new Agent(llm, registry);
-
-        System.out.println("输入问题，Agent 会自动决定是否调用文件工具；");
-        System.out.println("clear 清空对话历史；exit/quit 退出。\n");
-
-        // 中文退格由 TerminalLineReader 自己处理：终端按字节删除会让一个汉字需要多次退格，
-        // 并留下擦不掉的残影；这里改为按字符 + 显示宽度编辑（非终端输入自动回退为按行读取）。
+        try {
+            for (int i = 0; i < args.length; i++) {
+                if (args[i].equals("--root") && i + 1 < args.length) projectRoot = Path.of(args[++i]);
+                else if (args[i].equals("--configure")) configure = true;
+                else { help(); return 2; }
+            }
+        } catch (IllegalArgumentException e) {
+            System.err.println("项目目录无效。"); return 2;
+        }
+        ToolRegistry registry;
+        try { registry = new ToolRegistry(projectRoot); }
+        catch (IllegalArgumentException e) { System.err.println(e.getMessage()); return 2; }
+        Path envFile = Path.of(".env");
+        ConfigurationStore store = ConfigurationStore.system();
         try (TerminalLineReader reader = TerminalLineReader.create()) {
+            AgentConfiguration settings = store.load(envFile);
+            boolean invalid = !settings.hasApiKey() || !AgentConfiguration.validModel(settings.model())
+                    || !AgentConfiguration.validApiUrl(settings.apiUrl());
+            ConfigurationWizard wizard = ConfigurationWizard.forTerminal(reader, store);
+            if (configure || invalid) {
+                if (!reader.isInteractive()) {
+                    System.err.println("GLM_API_KEY 或模型配置缺失/无效。请在交互终端运行程序，按向导完成配置。");
+                    System.err.println("脚本模式请提供 GLM_API_KEY 环境变量或有效配置文件；不会将任务输入当作密钥。");
+                    return configure ? 2 : 1;
+                }
+                if (invalid) System.out.println("欢迎使用 Java AI Coding Agent！先完成 GLM 配置，随后即可开始任务。");
+                settings = wizard.configure(wizardDefaults(settings), false);
+                if (settings == null) return 0;
+                if (store.hasOverrides(envFile)) overridesNotice();
+                if (configure) return 0;
+            }
+            Agent agent = createAgent(settings, registry);
+            System.out.println("\n项目目录：" + registry.root());
+            System.out.println("当前模型：" + settings.model());
+            System.out.println("输入自然语言任务，Agent 会自动读写文件、编译或运行 Java 项目。");
+            System.out.println("/config 配置密钥与服务；/model 选择模型；/root 路径 切换项目；/help 查看帮助。");
+            System.out.println("clear 清空对话历史；exit/quit 退出。\n");
             while (true) {
-                String input;
-                try {
-                    input = reader.readLine("你：");
-                } catch (IOException e) {
-                    System.err.println("读取输入失败: " + e.getMessage());
-                    break;
-                }
-                if (input == null) {
-                    break;
-                }
-
+                String input = reader.readLine("你：");
+                if (input == null) break;
                 input = input.trim();
-                if (input.isEmpty()) {
+                if (input.isEmpty()) continue;
+                if (input.equalsIgnoreCase("exit") || input.equalsIgnoreCase("quit") || input.equals("/exit")) break;
+                if (input.equalsIgnoreCase("clear") || input.equals("/clear")) {
+                    agent.clearHistory(); System.out.println("历史已清空。\n"); continue;
+                }
+                if (input.equals("/help")) { help(); continue; }
+                if (input.equals("/config") || input.equals("/model")) {
+                    if (!reader.isInteractive()) {
+                        System.out.println("配置向导需要交互终端；脚本模式请使用 GLM_* 配置。"); continue;
+                    }
+                    AgentConfiguration selected = wizard.configure(settings, input.equals("/model"));
+                    if (selected != null) {
+                        settings = selected;
+                        agent = createAgent(settings, registry);
+                        System.out.println("配置已生效，当前模型：" + settings.model() + "；对话历史已清空。");
+                        if (store.hasOverrides(envFile)) overridesNotice();
+                    }
                     continue;
                 }
-                if (input.equalsIgnoreCase("exit") || input.equalsIgnoreCase("quit")) {
-                    break;
-                }
-                if (input.equalsIgnoreCase("clear")) {
-                    agent.clearHistory();
-                    System.out.println("历史已清空。\n");
+                if (input.equals("/root") || input.startsWith("/root ")) {
+                    String path = input.substring(5).trim();
+                    if (path.isEmpty()) { System.out.println("当前项目目录：" + registry.root() + "；使用 /root 路径 切换。"); continue; }
+                    try {
+                        ToolRegistry selected = new ToolRegistry(Path.of(unquote(path)));
+                        Agent selectedAgent = createAgent(settings, selected);
+                        registry = selected;
+                        agent = selectedAgent;
+                        System.out.println("项目目录：" + registry.root() + "；对话历史已清空。");
+                    } catch (IllegalArgumentException e) { System.out.println("无法切换项目：" + e.getMessage()); }
                     continue;
                 }
-
                 System.out.println("\nAgent：" + agent.run(input) + "\n");
             }
+        } catch (IOException e) {
+            System.err.println("配置或终端读取失败，请检查配置文件的访问权限与终端状态。");
+            return 1;
         }
-
         System.out.println("再见！");
+        return 0;
+    }
+
+    private static AgentConfiguration wizardDefaults(AgentConfiguration settings) {
+        return new AgentConfiguration(settings.apiKey(),
+                AgentConfiguration.validApiUrl(settings.apiUrl()) ? settings.apiUrl() : GlmClient.DEFAULT_API_URL,
+                AgentConfiguration.validModel(settings.model()) ? settings.model() : GlmClient.DEFAULT_MODEL);
+    }
+
+    private static Agent createAgent(AgentConfiguration settings, ToolRegistry registry) {
+        return new Agent(new GlmClient(settings.apiKey(), settings.apiUrl(), settings.model()), registry);
+    }
+
+    private static void overridesNotice() {
+        System.out.println("本次选择已生效；下次启动时，当前目录 .env 和 GLM_* 环境变量仍优先于用户配置。");
+    }
+
+    private static void help() {
+        System.out.println("用法: agent [--root 项目目录] [--configure]");
+        System.out.println("首次启动自动引导输入 API Key、选择模型与保存配置；--configure 单独运行配置向导。");
+        System.out.println("/config 重新配置；/model 选择模型；/root 路径 切换项目；/help 查看帮助。");
+        System.out.println("clear 或 /clear 清空历史；exit、quit 或 /exit 退出。");
+        System.out.println("工具: list_files, list_dir, read_file, search_code, write_file, edit_file, execute_command");
+        System.out.println("配置优先级：启动目录 .env > GLM_* 环境变量 > 用户配置 > 默认值。");
     }
 
     /**
@@ -104,22 +156,10 @@ public class Main {
      * @return 配置值
      */
     static String loadSetting(Path envFile, String name, String fallback) {
-        if (Files.isRegularFile(envFile)) {
-            try (BufferedReader reader = Files.newBufferedReader(envFile, StandardCharsets.UTF_8)) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    line = line.replace("\uFEFF", "").trim();
-                    if (line.startsWith(name + "=")) {
-                        String value = unquote(line.substring((name + "=").length()).trim());
-                        if (!value.isBlank()) {
-                            return value;
-                        }
-                    }
-                }
-            } catch (IOException e) {
-                System.err.println("读取 .env 失败: " + e.getMessage());
-            }
-        }
+        try {
+            String value = ConfigurationStore.readFile(envFile).get(name);
+            if (value != null && !value.isBlank()) return value;
+        } catch (IOException e) { System.err.println("读取 .env 失败。"); }
         String fromEnvironment = System.getenv(name);
         return (fromEnvironment == null || fromEnvironment.isBlank()) ? fallback : fromEnvironment;
     }

@@ -5,6 +5,8 @@ import com.agent.llm.LLMResponse;
 import com.agent.llm.Message;
 import com.agent.llm.ToolCall;
 import com.agent.tool.ToolRegistry;
+import com.agent.tool.ToolExecutor;
+import com.agent.tool.ToolResult;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
@@ -34,20 +36,26 @@ public class Agent {
     /** 终端只显示结果摘要，完整结果仍然回传给模型。 */
     private static final int TRACE_PREVIEW_CHARS = 200;
 
-    private static final String TRUNCATION_NOTICE =
-            "\n...[结果过长已截断，如需完整内容请缩小范围后重新调用工具]";
-
     static final String SYSTEM_PROMPT = """
-        你是一个 Java 编程助手 Agent，可以读取和搜索用户的项目代码。
+        你是一个 Java AI Coding Agent，可以读取、搜索、修改项目并编译运行代码。
 
         可用工具：
         1. list_files：列出目录下的文件；
         2. read_file：读取文件内容；
         3. search_code：搜索代码。
+        4. list_dir：列出一层目录，文件不存在时先查清真实路径；
+        5. write_file：新建文件，默认不覆盖，完整覆盖需显式 overwrite=true；
+        6. edit_file：将已读取的原文唯一一处替换为新文本；
+        7. execute_command：在项目目录真实执行 javac、java、mvn，不使用 shell。
 
         需要了解项目代码时，请调用工具，不要凭空猜测文件内容。
         获得工具结果后，再基于结果继续完成任务。
         工具返回失败信息时，请根据错误调整参数或向用户说明原因。
+        工具调用只表示意图，不表示成功。每次调用使用全新的非空 ID。
+        不要重复相同失败调用，应根据结果改变策略；不能访问项目外、.git 或 .env。
+        修改后必须重新编译，再运行或执行测试；不能把旧编译产物当作当前源码的验证。
+        只有工具消息证明修改成功、编译通过、运行输出或测试符合需求，才能宣称任务完成。
+        若验证失败或无法继续，应如实报告部分完成及原因，禁止编造输出或成功结论。
         请用中文回复用户。
         """;
 
@@ -55,6 +63,8 @@ public class Agent {
     private final ToolRegistry registry;
     private final PrintStream trace;
     private final List<Message> history = new ArrayList<>();
+    private final ToolExecutor executor;
+    private final ObservationRecorder recorder = new ObservationRecorder(history);
 
     public Agent(LLMClient llm, ToolRegistry registry) {
         this(llm, registry, System.out);
@@ -64,6 +74,7 @@ public class Agent {
     public Agent(LLMClient llm, ToolRegistry registry, PrintStream trace) {
         this.llm = llm;
         this.registry = registry;
+        this.executor = new ToolExecutor(registry);
         this.trace = trace;
         history.add(Message.system(SYSTEM_PROMPT));
     }
@@ -75,6 +86,7 @@ public class Agent {
      * @return 最终回答，或循环无法完成时的说明
      */
     public String run(String userInput) {
+        registry.guard().beginTurn();
         history.add(Message.user(userInput));
 
         for (int round = 1; round <= MAX_ITERATIONS; round++) {
@@ -84,7 +96,7 @@ public class Agent {
             try {
                 response = llm.chat(history, registry.getToolDefinitions());
             } catch (Exception e) {
-                return "LLM 调用失败: " + e.getMessage();
+                return finish("LLM 调用失败: " + e.getMessage());
             }
 
             trace.printf("Token：输入=%d，输出=%d%n",
@@ -98,20 +110,31 @@ public class Agent {
 
             // 先保存带 tool_calls 的 assistant 消息，再回传结果，
             // 否则模型看不到“自己上轮调用了什么”，API 会报消息角色/配对错误。
-            history.add(Message.assistant(response.content(), response.toolCalls()));
+            try {
+                recorder.beginCalls(response);
+            } catch (IllegalArgumentException e) {
+                return finish("工具调用协议错误，未执行本批工具: " + e.getMessage());
+            }
 
+            boolean blocked = false;
             for (ToolCall call : response.toolCalls()) {
                 trace.println("执行工具: " + call.name());
                 trace.println("参数: " + call.arguments());
 
-                String observation = limit(registry.execute(call.name(), call.arguments()));
-                trace.println("结果: " + preview(observation));
-
-                history.add(Message.tool(call.id(), observation));
+                ToolResult result;
+                if (blocked || !registry.guard().allow(call)) {
+                    blocked = true;
+                    result = ToolResult.failure("安全守卫停止执行：连续重复调用；任务未完成，请调整策略后重试。");
+                } else {
+                    result = executor.execute(call.name(), call.arguments());
+                }
+                trace.println("结果: " + preview(result.output()));
+                recorder.record(call.id(), result);
             }
+            if (blocked) return finish("安全守卫停止：连续重复调用，任务未完成。");
         }
 
-        return "达到最大推理轮数限制（" + MAX_ITERATIONS + "）";
+        return finish("达到最大推理轮数限制（" + MAX_ITERATIONS + "），任务可能仅部分完成。");
     }
 
     /** 清空历史，只保留 system 消息（CLI 的 {@code clear} 命令）。 */
@@ -125,13 +148,9 @@ public class Agent {
         return List.copyOf(history);
     }
 
-    private static String limit(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.length() <= MAX_OBSERVATION_CHARS
-                ? text
-                : text.substring(0, MAX_OBSERVATION_CHARS) + TRUNCATION_NOTICE;
+    private String finish(String answer) {
+        history.add(Message.assistant(answer));
+        return answer;
     }
 
     private static String preview(String text) {
