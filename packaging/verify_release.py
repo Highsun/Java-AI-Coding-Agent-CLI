@@ -80,7 +80,7 @@ def run_case(command, environment, workspace, scenario):
         env["GLM_API_URL"] = "http://127.0.0.1:1/should-be-overridden"
     try:
         completed = subprocess.run([str(command), "--root", str(workspace)], cwd=workspace, env=env,
-                                   input=scenario["prompt"] + "\nexit\n", text=True,
+                                   input=scenario["prompt"] + "\nexit\ny\n", text=True,
                                    capture_output=True, encoding="utf-8", timeout=60)
     finally:
         server.shutdown()

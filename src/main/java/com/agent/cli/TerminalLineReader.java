@@ -44,6 +44,7 @@ public final class TerminalLineReader implements Closeable {
     private Thread restoreHook;
     private boolean swallowLineFeed;
     private boolean closed;
+    private boolean interrupted;
 
     private TerminalLineReader(PushbackReader rawInput, BufferedReader canonicalInput,
             PrintStream out, boolean raw, Console console) {
@@ -65,7 +66,7 @@ public final class TerminalLineReader implements Closeable {
         boolean terminal = console != null;
 
         if (terminal && !System.getProperty("os.name").startsWith("Windows")
-                && setStty("-icanon", "-echo", "min", "1", "time", "0")) {
+                && setStty("-icanon", "-echo", "-isig", "min", "1", "time", "0")) {
             PushbackReader input = new PushbackReader(new InputStreamReader(stdin, charset), 8);
             TerminalLineReader reader = new TerminalLineReader(input, null, stdout, true, null);
             reader.restoreHook = new Thread(TerminalLineReader::restoreStty, "terminal-restore");
@@ -104,6 +105,7 @@ public final class TerminalLineReader implements Closeable {
     }
 
     private String readLine(String prompt, boolean secret) throws IOException {
+        if (interrupted) return null;
         if (!raw) {
             if (console != null) return console.readLine("%s", prompt);
             out.print(prompt);
@@ -138,6 +140,7 @@ public final class TerminalLineReader implements Closeable {
                 continue;
             }
             if (ch == CTRL_C) {
+                interrupted = true;
                 out.println("^C");
                 return null;
             }
@@ -250,6 +253,6 @@ public final class TerminalLineReader implements Closeable {
 
     /** 恢复终端的规范模式与回显，避免程序退出后终端“坏掉”。 */
     private static void restoreStty() {
-        setStty("icanon", "echo", "min", "1", "time", "0");
+        setStty("icanon", "echo", "isig", "min", "1", "time", "0");
     }
 }

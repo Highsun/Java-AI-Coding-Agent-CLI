@@ -4,7 +4,7 @@
 
 ## 项目状态
 
-当前已完成 Lab 01～03，并在 10.9 课堂练习后扩展为可自动读写文件、编译和运行代码的 Agent。下文 Lab 01～03 保留阶段记录，当前能力与角色分工见“10.9：完整 Coding Agent（V4）”。
+当前已完成 Lab 01～03、10.9 Coding Agent，并新增 10.16 的会话保存与恢复。下文旧阶段内容保留历史记录；最新行为见本节与 [SPEC.md](SPEC.md)，实际测试记录见 [会话验收记录](dev/SESSION_ACCEPTANCE.md)。
 
 | 版本 | 实验 | 新增能力 | 当前状态 |
 |---|---|---|---|
@@ -12,6 +12,42 @@
 | V2 | Lab 02：File Tools | 递归列文件、读取文本、搜索代码、文件工具测试与 Demo | 已完成 |
 | V3 | Lab 03：LLM Client + ReAct Agent + Tool Calling | GLM Client、ToolRegistry、Tool Calling、ReAct Loop、离线 Fake 测试、可执行 fat jar | 已完成 |
 | V4 | 10.9：完整 Coding Agent | 统一 Tool、严格参数校验、文件写入/编辑、真实命令执行、调用记录与安全守卫 | 已完成 |
+| V5 | 10.16：会话保存与恢复 | 手动保存/恢复、完整工具历史、丢弃提醒、严格校验、离线验收 | 已完成 |
+
+## 10.16：会话保存与恢复（V5）
+
+会话文件位于**当前项目**的 `.agent/sessions/`，与 CLI 启动目录和 API 配置保存位置分离。可用 `--root` 或 `/root` 选择项目。启动时不自动恢复，完成对话及退出时不自动保存。
+
+```text
+你：读取 Hello.java 并解释它的作用
+你：/save 课堂练习_01
+你：exit
+
+再次启动后：
+你：/load 课堂练习_01
+加载会话并替换当前历史？[y/N]：y
+你：继续解释刚才的方法
+```
+
+- `/save <会话名>`：保存内存历史；同名文件覆盖前确认。名称为 1～64 个汉字、英文字母、数字、`_` 或 `-`，不含扩展名、空格或路径。
+- `/load <会话名>`：先完整校验，再询问是否替换当前历史；恢复后使用当前系统提示、模型和项目目录，保留工具调用、结果及关联 ID，不重新执行历史工具。
+- 确认只接受 `y`/`yes`（忽略大小写和两侧空白）；空行、`n` 或其他输入取消。管道输入须显式提供确认行。
+- 有未保存对话时，退出、清空、切换模型／配置／项目之前会提醒；可取消后手动保存。EOF 或 Ctrl+C 结束程序时提醒但不自动保存。
+- 文件损坏、缺少字段、工具结果配对错误或大小超过 16 MiB 时拒绝加载，保留当前历史。写入采用同目录临时文件，覆盖采用原子替换；失败不会假报保存成功。
+- 会话采用 UTF-8 JSON v1，不保存配置凭证。对话正文按原样保存，用户主动输入的秘密不会自动脱敏。会话目录从文件工具访问、列举和搜索中隔离；命令进程不因此获得操作系统沙箱。
+
+开发指令见 [AGENTS.md](AGENTS.md)，Claude Code 项目入口见 [CLAUDE.md](CLAUDE.md)。三轮访谈和行为约定见 [SPEC.md](SPEC.md)。
+
+离线验证（不使用真实 API Key，不调用真实模型）：
+
+```bash
+mvn test
+mvn -q -DskipTests package
+python3 dev/acceptance.py
+python3 dev/session_acceptance.py
+```
+
+会话脚本包含 Unix PTY 验证，适用于 macOS/Linux；JUnit 与原有管道验收不依赖 PTY。证据位于 `target/session-acceptance-results.json`，含被测 JAR 的 SHA-256、CLI 输出及本地假模型收到的请求。
 
 ## 环境要求
 

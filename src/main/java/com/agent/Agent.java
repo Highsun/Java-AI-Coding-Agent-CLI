@@ -7,6 +7,8 @@ import com.agent.llm.ToolCall;
 import com.agent.tool.ToolRegistry;
 import com.agent.tool.ToolExecutor;
 import com.agent.tool.ToolResult;
+import com.agent.session.SessionCodec;
+import java.io.IOException;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
@@ -63,6 +65,7 @@ public class Agent {
     private final ToolRegistry registry;
     private final PrintStream trace;
     private final List<Message> history = new ArrayList<>();
+    private boolean unsaved;
     private final ToolExecutor executor;
     private final ObservationRecorder recorder = new ObservationRecorder(history);
 
@@ -88,6 +91,7 @@ public class Agent {
     public String run(String userInput) {
         registry.guard().beginTurn();
         history.add(Message.user(userInput));
+        unsaved = true;
 
         for (int round = 1; round <= MAX_ITERATIONS; round++) {
             trace.println("\n思考中……第 " + round + " 轮");
@@ -141,6 +145,19 @@ public class Agent {
     public void clearHistory() {
         history.clear();
         history.add(Message.system(SYSTEM_PROMPT));
+        unsaved = false;
+    }
+
+    public boolean hasUnsavedHistory() { return unsaved; }
+    public void markSaved() { unsaved = false; }
+    public List<Message> sessionHistory() { return List.copyOf(history.subList(1, history.size())); }
+
+    /** 整体校验完再替换，保留 recorder 引用的同一个历史容器。 */
+    public void restoreHistory(List<Message> messages) throws IOException {
+        SessionCodec.validate(messages);
+        List<Message> snapshot = List.copyOf(messages);
+        clearHistory();
+        history.addAll(snapshot);
     }
 
     /** 当前历史的只读快照，便于测试与排查。 */

@@ -15,7 +15,8 @@ final class WorkspaceFiles {
     private WorkspaceFiles() { }
     static boolean hidden(Path path) {
         String name = path.getFileName().toString();
-        return name.equals(".git") || name.equals("target") || name.equals(".env")
+        return com.agent.safety.SafetyGuard.isSessionPath(path)
+                || name.equals(".git") || name.equals("target") || name.equals(".env")
                 || (name.startsWith(".env.") && !name.equals(".env.example"));
     }
 

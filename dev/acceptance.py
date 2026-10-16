@@ -144,7 +144,7 @@ def run_scenario(jar, scenario):
             environment.update(GLM_API_KEY="offline-dummy", GLM_API_URL=f"http://127.0.0.1:{server.server_port}/chat")
             completed = subprocess.run(["java", "-jar", str(jar), "--root", str(workspace)],
                                        cwd=workspace, env=environment,
-                                       input=scenario["prompt"] + "\nexit\n", text=True,
+                                       input=scenario["prompt"] + "\nexit\ny\n", text=True,
                                        capture_output=True, timeout=45, encoding="utf-8")
         finally:
             server.shutdown()

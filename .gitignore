@@ -6,3 +6,4 @@ target/
 .env
 __pycache__/
 *.py[cod]
+/.agent/sessions/

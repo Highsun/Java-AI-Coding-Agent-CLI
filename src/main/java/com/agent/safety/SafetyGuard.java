@@ -44,6 +44,7 @@ public final class SafetyGuard {
 
     private void checkBoundary(Path path, String raw) throws IOException {
         if (!path.startsWith(root)) throw new IOException("路径越界，拒绝访问项目根目录之外: " + raw);
+        if (isSessionPath(path)) throw new IOException("会话目录仅允许通过 /save 和 /load 管理");
         for (Path part : root.relativize(path)) {
             String name = part.toString();
             if (name.equals(".git") || name.equals(".env")
@@ -51,6 +52,14 @@ public final class SafetyGuard {
                 throw new IOException("受保护路径，拒绝访问: " + raw);
             }
         }
+    }
+
+    public static boolean isSessionPath(Path path) {
+        for (int i = 0; i + 1 < path.getNameCount(); i++) {
+            if (path.getName(i).toString().equals(".agent")
+                    && path.getName(i + 1).toString().equals("sessions")) return true;
+        }
+        return false;
     }
 
     public void beginTurn() { lastSignature = null; repeats = 0; }

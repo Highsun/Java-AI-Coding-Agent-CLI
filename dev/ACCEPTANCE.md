@@ -2,6 +2,8 @@
 
 本文件是可执行测试的使用说明，不是实验报告。环境要求：JDK 17+、Maven、Python 3（只用标准库）。
 
+10.16 会话功能另使用 `python3 dev/session_acceptance.py` 验证跨进程保存／恢复及 Unix PTY 交互，逐项结果见 [SESSION_ACCEPTANCE.md](SESSION_ACCEPTANCE.md)。本页六组业务回归仍保留；退出输入已增加未保存历史的确认行。
+
 在 `code/` 执行：
 
 ```bash

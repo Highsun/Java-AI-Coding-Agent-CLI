@@ -2,6 +2,7 @@ package com.agent;
 
 import com.agent.cli.ConfigurationWizard;
 import com.agent.cli.TerminalLineReader;
+import com.agent.cli.SessionCommands;
 import com.agent.config.AgentConfiguration;
 import com.agent.config.ConfigurationStore;
 import com.agent.llm.GlmClient;
@@ -56,25 +57,34 @@ public class Main {
                 if (configure) return 0;
             }
             Agent agent = createAgent(settings, registry);
+            SessionCommands sessions = new SessionCommands(reader::readLine, System.out);
             System.out.println("\n项目目录：" + registry.root());
             System.out.println("当前模型：" + settings.model());
             System.out.println("输入自然语言任务，Agent 会自动读写文件、编译或运行 Java 项目。");
             System.out.println("/config 配置密钥与服务；/model 选择模型；/root 路径 切换项目；/help 查看帮助。");
             System.out.println("clear 清空对话历史；exit/quit 退出。\n");
-            while (true) {
+            System.out.println("/save 会话名 保存；/load 会话名 恢复；启动不自动恢复。\n");
+            boolean explicitExit = false;
+            while (!sessions.ended()) {
                 String input = reader.readLine("你：");
                 if (input == null) break;
                 input = input.trim();
                 if (input.isEmpty()) continue;
-                if (input.equalsIgnoreCase("exit") || input.equalsIgnoreCase("quit") || input.equals("/exit")) break;
+                if (input.equalsIgnoreCase("exit") || input.equalsIgnoreCase("quit") || input.equals("/exit")) {
+                    if (sessions.allowDiscard(agent, "退出")) { explicitExit = true; break; }
+                    continue;
+                }
                 if (input.equalsIgnoreCase("clear") || input.equals("/clear")) {
+                    if (!sessions.allowDiscard(agent, "清空历史")) continue;
                     agent.clearHistory(); System.out.println("历史已清空。\n"); continue;
                 }
                 if (input.equals("/help")) { help(); continue; }
+                if (sessions.handle(input, agent, registry.root())) continue;
                 if (input.equals("/config") || input.equals("/model")) {
                     if (!reader.isInteractive()) {
                         System.out.println("配置向导需要交互终端；脚本模式请使用 GLM_* 配置。"); continue;
                     }
+                    if (!sessions.allowDiscard(agent, input.equals("/model") ? "切换模型" : "重新配置")) continue;
                     AgentConfiguration selected = wizard.configure(settings, input.equals("/model"));
                     if (selected != null) {
                         settings = selected;
@@ -87,6 +97,7 @@ public class Main {
                 if (input.equals("/root") || input.startsWith("/root ")) {
                     String path = input.substring(5).trim();
                     if (path.isEmpty()) { System.out.println("当前项目目录：" + registry.root() + "；使用 /root 路径 切换。"); continue; }
+                    if (!sessions.allowDiscard(agent, "切换项目")) continue;
                     try {
                         ToolRegistry selected = new ToolRegistry(Path.of(unquote(path)));
                         Agent selectedAgent = createAgent(settings, selected);
@@ -96,8 +107,10 @@ public class Main {
                     } catch (IllegalArgumentException e) { System.out.println("无法切换项目：" + e.getMessage()); }
                     continue;
                 }
+                if (input.startsWith("/")) { System.out.println("未知命令，请输入 /help 查看帮助。"); continue; }
                 System.out.println("\nAgent：" + agent.run(input) + "\n");
             }
+            if (!explicitExit) sessions.warnOnEnd(agent);
         } catch (IOException e) {
             System.err.println("配置或终端读取失败，请检查配置文件的访问权限与终端状态。");
             return 1;
@@ -125,6 +138,9 @@ public class Main {
         System.out.println("首次启动自动引导输入 API Key、选择模型与保存配置；--configure 单独运行配置向导。");
         System.out.println("/config 重新配置；/model 选择模型；/root 路径 切换项目；/help 查看帮助。");
         System.out.println("clear 或 /clear 清空历史；exit、quit 或 /exit 退出。");
+        System.out.println("/save 会话名 保存；/load 会话名 恢复；文件位于当前项目 .agent/sessions/。");
+        System.out.println("会话名：1～64 个汉字、英文字母、数字、_ 或 -，不带扩展名。");
+        System.out.println("覆盖、加载和丢弃未保存历史均需确认 [y/N]；仅 y/yes 同意；不会自动保存或恢复。");
         System.out.println("工具: list_files, list_dir, read_file, search_code, write_file, edit_file, execute_command");
         System.out.println("配置优先级：启动目录 .env > GLM_* 环境变量 > 用户配置 > 默认值。");
     }

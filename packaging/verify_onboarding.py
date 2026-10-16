@@ -82,7 +82,7 @@ class Terminal:
     def finish(self, code=0):
         self.expect(f"__AGENT_PTY_DONE_{code}__")
         restored = termios.tcgetattr(self.slave)
-        mask = termios.ECHO | termios.ICANON
+        mask = termios.ECHO | termios.ICANON | termios.ISIG
         check(restored[3] & mask == self.original[3] & mask, "Terminal echo/canonical mode not restored")
         self.send("\n")
         end = time.monotonic() + 15
@@ -202,6 +202,8 @@ def run_checks(launcher, environment, base, java, jar, start=None):
             terminal.expect("引导验收完成：")
             terminal.expect("你：")
             terminal.send("exit\n")
+            terminal.expect("[y/N]：")
+            terminal.send("y\n")
             terminal.finish()
             record("onboarding_hidden_key_save_and_real_tools", terminal, http_requests=len(requests))
         check(config.is_file() and secret in config.read_text(), "Settings not saved or secret editing failed")
@@ -240,6 +242,8 @@ def run_checks(launcher, environment, base, java, jar, start=None):
             terminal.expect("引导验收完成：")
             terminal.expect("你：")
             terminal.send("/exit\n")
+            terminal.expect("[y/N]：")
+            terminal.send("y\n")
             terminal.finish()
             record("restart_model_config_root_and_help", terminal, http_requests=len(requests) - 4)
         check("GLM_MODEL=updated-model" in config.read_text() and secret in config.read_text(), "Updated config not saved")

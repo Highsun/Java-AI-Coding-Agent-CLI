@@ -67,7 +67,7 @@ class CliCodingEndToEndTest {
             process = builder.start();
             final Process running = process;
             var outputFuture = reader.submit(() -> new String(running.getInputStream().readAllBytes(), StandardCharsets.UTF_8));
-            process.getOutputStream().write(("将 Hello.java 的输出改为 Hello Agent，重新编译并运行验证。\nclear\n你好\nexit\n")
+            process.getOutputStream().write(("将 Hello.java 的输出改为 Hello Agent，重新编译并运行验证。\nclear\ny\n你好\nexit\ny\n")
                     .getBytes(StandardCharsets.UTF_8));
             process.getOutputStream().close();
             assertTrue(process.waitFor(30, TimeUnit.SECONDS), "CLI 应按时退出");
