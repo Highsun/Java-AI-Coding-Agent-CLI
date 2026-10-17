@@ -10,6 +10,7 @@ import platform
 import plistlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
@@ -77,10 +78,21 @@ def usage(version, mac=False):
 本程序支持列目录、读文件、搜索代码、新建文件、精确替换、执行 Java/Javac/Maven 命令。
 模型回答需要网络和有效 GLM 账户。Mac 版内置 Java 和 Javac；Maven 工程任务仍需要自行安装 Maven，并具备相应工程依赖。
 
+## 会话保存与恢复
+
+输入 `/save 会话名` 手动保存当前历史，输入 `/load 会话名` 并确认后恢复。
+会话保存在当前项目的 `.agent/sessions/会话名.json`，名称可使用汉字、英文字母、数字、下划线和连字符，最长 64 个字符。
+覆盖已有会话、加载替换历史均需确认；退出、清空、切换模型／配置／项目时，有未保存历史也会提醒。
+确认提示 `[y/N]` 只有输入 `y` 或 `yes` 才同意，回车或其他回答取消。
+
+启动时不自动恢复，退出时不自动保存。恢复保留对话和工具结果，不重新执行历史工具，也不还原项目文件。
+会话使用当前模型、服务地址、系统提示和项目目录；无效文件会整体验证失败并保留当前历史。
+会话文件不复制配置凭证，但用户写入对话的秘密不会自动脱敏。操作外部项目时，本程序不会自动修改该项目的 Git 忽略规则。
+
 ## 版本与验证
 
 `release.json` 记录本次构建的源码摘要、Git 基准提交、工作树状态、JDK 和测试结果。
-源码归档与 `SHA256SUMS` 随发行目录单独提供。课程阶段 Lab 04 对应本发行版本 {version}。
+源码归档与 `SHA256SUMS` 随发行目录单独提供。本发行版本 {version} 包含 10.9 Coding Agent 和 10.16 会话保存／恢复功能。
 包内 Java 运行时的许可位于应用 `Contents/Resources/runtime/legal/`；依赖组件的许可与声明保留在 JAR 的 `META-INF/` 中。
 项目源码的发布授权沿用原仓库约定。
 
@@ -107,7 +119,8 @@ def main():
     build = Path(tempfile.mkdtemp(prefix="release-build-", dir=build_parent))
     snapshot = build / f"Java-Coding-Agent-{version}-source"
     snapshot.mkdir()
-    for name in ("pom.xml", "src", "dev", "README.md", ".env.example", "packaging"):
+    for name in ("pom.xml", "src", "dev", "README.md", ".env.example", ".gitignore",
+                 "AGENTS.md", "CLAUDE.md", "SPEC.md", "packaging"):
         source = ROOT / name
         if source.is_dir():
             shutil.copytree(source, snapshot / name,
@@ -136,6 +149,17 @@ def main():
             raise RuntimeError(f"Release requires all tests to pass without skips: {totals}")
         shutil.copytree(reports, output / "test-results")
         jar = snapshot / "target/agent-cli.jar"
+        run([sys.executable, snapshot / "dev/acceptance.py", "--jar", jar,
+             "--output", output / "acceptance-results.json"])
+        run([sys.executable, snapshot / "dev/session_acceptance.py", "--jar", jar,
+             "--output", output / "session-acceptance-results.json"])
+        coding_results = json.loads((output / "acceptance-results.json").read_text(encoding="utf-8"))
+        session_results = json.loads((output / "session-acceptance-results.json").read_text(encoding="utf-8"))
+        for results, expected in ((coding_results["results"], 6), (session_results["results"], 15)):
+            if len(results) != expected or any(result["status"] != "PASS" for result in results):
+                raise RuntimeError("CLI acceptance did not pass all expected scenarios")
+        if session_results["jar_sha256"] != sha256(jar):
+            raise RuntimeError("Session acceptance tested a different JAR")
         metadata = {
             "name": APP_NAME, "version": version,
             "built_at": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -143,6 +167,7 @@ def main():
             "git_worktree_status": subprocess.check_output(["git", "status", "--short"], cwd=ROOT, text=True).splitlines(),
             "source": "current working-tree snapshot, including uncommitted files",
             "source_sha256": source_files, "jar_sha256": sha256(jar), "unit_tests": totals,
+            "cli_acceptance": {"coding_agent_scenarios": 6, "session_scenarios": 15},
             "platform": platform.platform(), "architecture": platform.machine(),
             "jdk": subprocess.check_output(["java", "-version"], stderr=subprocess.STDOUT, text=True).strip(),
             "api_credentials_included": False,

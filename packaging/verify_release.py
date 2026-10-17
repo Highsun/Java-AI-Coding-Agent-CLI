@@ -160,6 +160,7 @@ def main():
             check(invoke(["--version"]).stdout.strip() == f"Java AI Coding Agent {metadata['version']}", "version")
             help_result = invoke(["--help"])
             check(help_result.returncode == 0 and "execute_command" in help_result.stdout, "help without key")
+            check("/save" in help_result.stdout and "/load" in help_result.stdout, "session commands missing from help")
             missing = invoke([])
             check(missing.returncode == 1 and "GLM_API_KEY" in missing.stderr, "missing key exit status")
             check(invoke(["--root", str(cwd / "missing")]).returncode == 2, "invalid root exit status")
@@ -189,6 +190,18 @@ def main():
                                                  home / "lib/agent-cli.jar", home / "Start.command" if mac else None)
             results.extend(dict(result, distribution=archive.stem) for result in terminal_results)
             print(f"PASS {archive.stem}: {len(terminal_results)} real PTY onboarding checks", flush=True)
+            session_evidence = release / ("session-verification-" + archive.stem + ".json")
+            session_env = dict(env, JAVA_HOME=str(home / "runtime") if mac else java_home,
+                               PATH=str(home / "runtime/bin" if mac else Path(java_home) / "bin") + os.pathsep + env["PATH"])
+            subprocess.run([sys.executable, str(ROOT / "dev/session_acceptance.py"),
+                            "--jar", str(home / "lib/agent-cli.jar"), "--output", str(session_evidence)],
+                           cwd=cwd, env=session_env, check=True, timeout=180)
+            session_results = json.loads(session_evidence.read_text(encoding="utf-8"))
+            check(session_results["jar_sha256"] == metadata["jar_sha256"], "session tests used a different JAR")
+            check(session_results["passed"] == len(session_results["results"]) == 15, "incomplete session acceptance")
+            check(all(result["status"] == "PASS" for result in session_results["results"]), "session acceptance failed")
+            results.extend(dict(result, distribution=archive.stem) for result in session_results["results"])
+            print(f"PASS {archive.stem}: 15 extracted-JAR session checks", flush=True)
             results.append({"distribution": archive.stem, "scenario": "launchers_config_paths_signature", "status": "PASS"})
     report = {"version": metadata["version"], "model": "local scripted HTTP model; real file/Java tools",
               "gui_launch_tested": False, "note": "Native entry path and Start.command tested; Finder/Terminal GUI not driven.",

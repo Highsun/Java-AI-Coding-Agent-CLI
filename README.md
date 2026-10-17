@@ -6,6 +6,8 @@
 
 当前已完成 Lab 01～03、10.9 Coding Agent，并新增 10.16 的会话保存与恢复。下文旧阶段内容保留历史记录；最新行为见本节与 [SPEC.md](SPEC.md)，实际测试记录见 [会话验收记录](dev/SESSION_ACCEPTANCE.md)。
 
+当前发行版本为 **v0.2.0**，包含首次配置向导及会话保存／恢复。Mac 应用、通用包与源码快照的构建和解压验收见 [发行构建说明](packaging/README.md)；历史 v0.1.x 归档保留。
+
 | 版本 | 实验 | 新增能力 | 当前状态 |
 |---|---|---|---|
 | V1 | Lab 01：Java Project Bootstrap | Maven 工程、Java CLI、Agent 逻辑、JUnit 测试、Git 版本点 | 已完成 |
